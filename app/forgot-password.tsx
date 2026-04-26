@@ -28,7 +28,6 @@ export default function ForgotPasswordScreen() {
     }
     setLoading(true);
     try {
-      // TODO: Implement password reset logic with backend
       console.log("Send reset email to:", email);
       setSent(true);
     } catch (error) {

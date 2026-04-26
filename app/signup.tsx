@@ -2,6 +2,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { supabase } from "@/utils/supabase";
 import { Link, useRouter } from "expo-router";
 import { useState } from "react";
 import {
@@ -40,7 +41,6 @@ export default function SignupScreen() {
   };
 
   const handleSignup = async () => {
-    // Validation
     if (
       !formData.email ||
       !formData.fullName ||
@@ -48,29 +48,53 @@ export default function SignupScreen() {
       !formData.nidNumber ||
       !formData.password
     ) {
-      setError("Please fill in all required fields");
+      setError("Please fill in all required fields.");
       return;
     }
-
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match");
+      setError("Passwords do not match.");
       return;
     }
-
     if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters");
+      setError("Password must be at least 6 characters.");
       return;
     }
 
+    setError("");
     setLoading(true);
     try {
-      // TODO: Implement signup logic with backend
-      console.log("Signup with:", formData);
-      // Navigate to drawer home after signup
+      // Create auth user
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: formData.email.trim(),
+        password: formData.password,
+      });
+      if (authError) {
+        setError(authError.message);
+        return;
+      }
+
+      // Insert extra profile info linked to auth user
+      const userId = data.user?.id;
+      if (userId) {
+        const { error: profileError } = await supabase.from("profiles").insert([
+          {
+            id: userId,
+            email: formData.email.trim(),
+            full_name: formData.fullName.trim(),
+            phone_number: formData.phoneNumber.trim(),
+            nid_number: formData.nidNumber.trim(),
+            date_of_birth: formData.dateOfBirth.trim() || null,
+            nationality: formData.nationality.trim() || null,
+          },
+        ]);
+        if (profileError) {
+          console.warn("Profile insert error:", profileError.message);
+        }
+      }
+
       router.replace("/(drawer)/dashboard");
-    } catch (error) {
-      console.error("Signup error:", error);
-      setError("Signup failed. Please try again.");
+    } catch (err: any) {
+      setError(err?.message ?? "Signup failed. Please try again.");
     } finally {
       setLoading(false);
     }

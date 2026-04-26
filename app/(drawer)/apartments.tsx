@@ -2,8 +2,14 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useState } from "react";
+import { supabase } from "@/utils/supabase";
+import * as ImagePicker from "expo-image-picker";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -13,106 +19,68 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// Apartment data (same as dashboard)
-const apartmentDetails = [
-  {
-    id: 1,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$2,500/month",
-    image: "#FF9F43",
-    bedrooms: 2,
-    bathrooms: 1,
-    location: "Downtown, City Center",
-    description:
-      "Modern 2-bedroom apartment with great views and modern amenities",
-    area: "1,200 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Gym", "Swimming Pool", "24/7 Security"],
-    rating: 4.5,
-    reviews: 128,
-  },
-  {
-    id: 2,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$2,500/month",
-    image: "#2ED573",
-    bedrooms: 2,
-    bathrooms: 2,
-    location: "Business District",
-    description:
-      "Beautiful apartment in a prime location with excellent amenities",
-    area: "1,350 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Gym", "24/7 Security", "Balcony"],
-    rating: 4.7,
-    reviews: 95,
-  },
-  {
-    id: 3,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$2,500/month",
-    image: "#9B59B6",
-    bedrooms: 1,
-    bathrooms: 1,
-    location: "Near University",
-    description:
-      "Cozy 1-bedroom apartment perfect for students and professionals",
-    area: "800 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Security", "24/7 Support"],
-    rating: 4.3,
-    reviews: 67,
-  },
-  {
-    id: 4,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$3,200/month",
-    image: "#2ED573",
-    bedrooms: 3,
-    bathrooms: 2,
-    location: "Premium Area",
-    description: "Luxury apartment with modern amenities",
-    area: "1,800 sq ft",
-    amenities: [
-      "Wi-Fi",
-      "Parking",
-      "Gym",
-      "Swimming Pool",
-      "24/7 Security",
-      "Concierge",
-    ],
-    rating: 4.8,
-    reviews: 156,
-  },
-  {
-    id: 5,
-    name: "Downtown Towers (Flat 5A)",
-    price: "$2,800/month",
-    image: "#DDA15E",
-    bedrooms: 2,
-    bathrooms: 1,
-    location: "City Center",
-    description: "Spacious flat in city center",
-    area: "1,400 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Gym", "24/7 Security", "Rooftop"],
-    rating: 4.6,
-    reviews: 142,
-  },
-];
+// Shape of a listing row from Supabase
+type Listing = {
+  id: number;
+  name: string;
+  price: string;
+  location: string;
+  bedrooms: number;
+  bathrooms: number;
+  area: string;
+  description: string;
+  images: string[] | null;
+  amenities?: string[] | null;
+  rating: number;
+  reviews: number;
+  user_id?: string;
+};
 
 export default function ApartmentsScreen() {
   const colorScheme = useColorScheme();
   const colors = colorScheme === "dark" ? Colors.dark : Colors.light;
 
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [fetchLoading, setFetchLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
-  const [selectedApartment, setSelectedApartment] = useState<
-    (typeof apartmentDetails)[0] | null
-  >(null);
+  const [selectedApartment, setSelectedApartment] = useState<Listing | null>(
+    null,
+  );
   const [modalVisible, setModalVisible] = useState(false);
+  const [addPostVisible, setAddPostVisible] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [priceFilter, setPriceFilter] = useState("all");
   const [bedroomFilter, setBedroomFilter] = useState("all");
   const [ratingFilter, setRatingFilter] = useState("all");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // Filter apartments based on search and filter criteria
-  const filteredApartments = apartmentDetails.filter((apt) => {
+  const fetchListings = async () => {
+    setFetchLoading(true);
+
+    // Get current user id to determine if we should show the contact landlord button
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData.user) {
+      setCurrentUserId(userData.user.id);
+    }
+
+    const { data, error } = await supabase
+      .from("listings")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (!error && data) {
+      setListings(data as Listing[]);
+    } else if (error) {
+      console.error("Failed to fetch listings:", error.message);
+    }
+    setFetchLoading(false);
+  };
+
+  useEffect(() => {
+    fetchListings();
+  }, []);
+
+  // Filter listings based on search and filter criteria
+  const filteredApartments = listings.filter((apt) => {
     const matchesSearch =
       apt.name.toLowerCase().includes(searchText.toLowerCase()) ||
       apt.location.toLowerCase().includes(searchText.toLowerCase());
@@ -120,9 +88,9 @@ export default function ApartmentsScreen() {
     const priceNum = parseInt(apt.price.replace(/\D/g, ""));
     const matchesPrice =
       priceFilter === "all" ||
-      (priceFilter === "under2500" && priceNum < 2500) ||
-      (priceFilter === "2500to3000" && priceNum >= 2500 && priceNum <= 3000) ||
-      (priceFilter === "above3000" && priceNum > 3000);
+      (priceFilter === "under25k" && priceNum < 25000) ||
+      (priceFilter === "25kto30k" && priceNum >= 25000 && priceNum <= 30000) ||
+      (priceFilter === "above30k" && priceNum > 30000);
 
     const matchesBedroom =
       bedroomFilter === "all" || apt.bedrooms === parseInt(bedroomFilter);
@@ -175,9 +143,9 @@ export default function ApartmentsScreen() {
                   ]}
                 >
                   <ThemedText style={styles.activeFilterText}>
-                    {priceFilter === "under2500" && "< $2,500"}
-                    {priceFilter === "2500to3000" && "$2,500-$3K"}
-                    {priceFilter === "above3000" && "> $3,000"}
+                    {priceFilter === "under25k" && "< ৳25,000"}
+                    {priceFilter === "25kto30k" && "৳25K-৳30K"}
+                    {priceFilter === "above30k" && "> ৳30,000"}
                   </ThemedText>
                 </View>
               )}
@@ -220,9 +188,9 @@ export default function ApartmentsScreen() {
                 <View style={styles.filterOptions}>
                   {[
                     { label: "All", value: "all" },
-                    { label: "< $2,500", value: "under2500" },
-                    { label: "$2,500-$3K", value: "2500to3000" },
-                    { label: "> $3,000", value: "above3000" },
+                    { label: "< ৳25,000", value: "under25k" },
+                    { label: "৳25K-৳30K", value: "25kto30k" },
+                    { label: "> ৳30,000", value: "above30k" },
                   ].map((option) => (
                     <TouchableOpacity
                       key={option.value}
@@ -351,7 +319,14 @@ export default function ApartmentsScreen() {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         >
-          {filteredApartments.length > 0 ? (
+          {fetchLoading ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <ThemedText style={[styles.emptySubtitle, { marginTop: 12 }]}>
+                Loading listings...
+              </ThemedText>
+            </View>
+          ) : filteredApartments.length > 0 ? (
             filteredApartments.map((apt) => (
               <TouchableOpacity
                 key={apt.id}
@@ -361,16 +336,31 @@ export default function ApartmentsScreen() {
                   setModalVisible(true);
                 }}
               >
-                <View
-                  style={[styles.cardImage, { backgroundColor: apt.image }]}
-                />
+                {/* Show first image if available, otherwise color placeholder */}
+                {apt.images && apt.images.length > 0 ? (
+                  <Image
+                    source={{ uri: apt.images[0] }}
+                    style={styles.cardImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View
+                    style={[styles.cardImage, { backgroundColor: "#FDB913" }]}
+                  />
+                )}
                 <View style={styles.cardInfo}>
                   <View style={styles.cardHeader}>
                     <ThemedText style={styles.cardName}>{apt.name}</ThemedText>
                     <ThemedText
                       style={[styles.cardPrice, { color: colors.primary }]}
                     >
-                      {apt.price}
+                      {(() => {
+                        if (!apt.price) return "";
+                        const num = parseInt(apt.price.replace(/\D/g, ""));
+                        return isNaN(num)
+                          ? apt.price
+                          : `৳${num.toLocaleString("en-US")}/month`;
+                      })()}
                     </ThemedText>
                   </View>
                   <ThemedText style={styles.cardLocation}>
@@ -378,12 +368,20 @@ export default function ApartmentsScreen() {
                   </ThemedText>
                   <View style={styles.cardMeta}>
                     <ThemedText style={styles.cardMetaText}>
-                      {apt.bedrooms} bed • {apt.bathrooms} bath • {apt.area}
+                      {apt.bedrooms} bed • {apt.bathrooms} bath
+                      {apt.area
+                        ? ` • ${(() => {
+                            const num = parseInt(apt.area.replace(/\D/g, ""));
+                            return isNaN(num)
+                              ? apt.area
+                              : `${num.toLocaleString("en-US")} sqft`;
+                          })()}`
+                        : ""}
                     </ThemedText>
                     <ThemedText
                       style={[styles.cardRating, { color: colors.primary }]}
                     >
-                      ⭐ {apt.rating}
+                      ⭐ {apt.rating ?? 0}
                     </ThemedText>
                   </View>
                 </View>
@@ -395,7 +393,9 @@ export default function ApartmentsScreen() {
                 No apartments found
               </ThemedText>
               <ThemedText style={styles.emptySubtitle}>
-                Try adjusting your filters or search term
+                {listings.length === 0
+                  ? "Be the first to post a listing! Tap + below."
+                  : "Try adjusting your filters or search term."}
               </ThemedText>
             </View>
           )}
@@ -411,8 +411,25 @@ export default function ApartmentsScreen() {
               setSelectedApartment(null);
             }}
             colors={colors}
+            currentUserId={currentUserId}
           />
         )}
+
+        {/* Add Post Modal */}
+        <AddPostModal
+          visible={addPostVisible}
+          onClose={() => setAddPostVisible(false)}
+          onSuccess={fetchListings}
+          colors={colors}
+        />
+
+        {/* Floating Action Button */}
+        <TouchableOpacity
+          style={[styles.fab, { backgroundColor: colors.primary }]}
+          onPress={() => setAddPostVisible(true)}
+        >
+          <ThemedText style={styles.fabText}>+</ThemedText>
+        </TouchableOpacity>
       </ThemedView>
     </SafeAreaView>
   );
@@ -423,12 +440,110 @@ function ApartmentDetailsModal({
   visible,
   onClose,
   colors,
+  currentUserId,
 }: {
-  apartment: (typeof apartmentDetails)[0];
+  apartment: Listing;
   visible: boolean;
   onClose: () => void;
   colors: typeof Colors.light;
+  currentUserId: string | null;
 }) {
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [loadingLandlord, setLoadingLandlord] = useState(false);
+  const [isFavourited, setIsFavourited] = useState(false);
+  const [favId, setFavId] = useState<number | null>(null);
+  const [favLoading, setFavLoading] = useState(false);
+  const { width } = Dimensions.get("window");
+
+  useEffect(() => {
+    if (visible) {
+      setActiveImageIndex(0);
+      checkFavourite();
+    }
+  }, [visible, apartment.id]);
+
+  const checkFavourite = async () => {
+    if (!currentUserId) return;
+    const { data } = await supabase
+      .from("favourites")
+      .select("id")
+      .eq("user_id", currentUserId)
+      .eq("listing_id", apartment.id)
+      .maybeSingle();
+    setIsFavourited(!!data);
+    setFavId(data?.id ?? null);
+  };
+
+  const toggleFavourite = async () => {
+    if (!currentUserId) {
+      Alert.alert("Sign in required", "Please log in to save favourites.");
+      return;
+    }
+    setFavLoading(true);
+    try {
+      if (isFavourited && favId) {
+        await supabase.from("favourites").delete().eq("id", favId);
+        setIsFavourited(false);
+        setFavId(null);
+      } else {
+        const { data } = await supabase
+          .from("favourites")
+          .insert({ user_id: currentUserId, listing_id: apartment.id })
+          .select("id")
+          .single();
+        setIsFavourited(true);
+        setFavId(data?.id ?? null);
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    } finally {
+      setFavLoading(false);
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const slideSize = event.nativeEvent.layoutMeasurement.width;
+    const index = Math.round(event.nativeEvent.contentOffset.x / slideSize);
+    setActiveImageIndex(index);
+  };
+
+  const handleContactLandlord = async () => {
+    if (!apartment.user_id) {
+      Alert.alert(
+        "Notice",
+        "Landlord information is not available for this listing.",
+      );
+      return;
+    }
+
+    setLoadingLandlord(true);
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("full_name, phone_number")
+        .eq("id", apartment.user_id)
+        .single();
+
+      if (error) throw error;
+
+      const name = data.full_name || "Landlord";
+      const phone = data.phone_number || "Not provided";
+
+      Alert.alert(`👤 ${name}`, `📞 Phone: ${phone}`, [
+        { text: "Close", style: "cancel" },
+      ]);
+    } catch (err: any) {
+      Alert.alert(
+        "Error",
+        err?.message || "Failed to load landlord information.",
+      );
+    } finally {
+      setLoadingLandlord(false);
+    }
+  };
+
+  const isOwner = currentUserId === apartment.user_id;
+
   return (
     <Modal
       visible={visible}
@@ -443,33 +558,69 @@ function ApartmentDetailsModal({
           {/* Modal Header */}
           <View style={styles.modalHeader}>
             <ThemedText style={styles.modalTitle}>{apartment.name}</ThemedText>
-            <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
-              <ThemedText style={styles.modalCloseIcon}>✕</ThemedText>
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity
+                onPress={toggleFavourite}
+                disabled={favLoading}
+                style={{ padding: 8 }}
+              >
+                <ThemedText style={{ fontSize: 22 }}>
+                  {isFavourited ? "❤️" : "🤍"}
+                </ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
+                <ThemedText style={styles.modalCloseIcon}>✕</ThemedText>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Scrollable Content */}
           <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Main Image */}
-            <View
-              style={[styles.modalImage, { backgroundColor: apartment.image }]}
-            />
+            {/* Main Image Slider */}
+            {apartment.images && apartment.images.length > 0 ? (
+              <View>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                >
+                  {apartment.images.map((img, index) => (
+                    <Image
+                      key={index}
+                      source={{ uri: img }}
+                      style={[styles.modalImage, { width }]}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            ) : (
+              <View
+                style={[styles.modalImage, { backgroundColor: "#FDB913" }]}
+              />
+            )}
 
             {/* Image Gallery Indicators */}
-            <View style={styles.imageIndicators}>
-              {[0, 1, 2, 3].map((i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.indicator,
-                    i === 0 && { backgroundColor: colors.primary },
-                    i !== 0 && {
-                      backgroundColor: colors.border,
-                    },
-                  ]}
-                />
-              ))}
-            </View>
+            {apartment.images && apartment.images.length > 1 && (
+              <View style={styles.imageIndicators}>
+                {apartment.images.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.indicator,
+                      i === activeImageIndex && {
+                        backgroundColor: colors.primary,
+                      },
+                      i !== activeImageIndex && {
+                        backgroundColor: colors.border,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
 
             {/* Details Section */}
             <View style={styles.modalDetailsSection}>
@@ -477,10 +628,22 @@ function ApartmentDetailsModal({
               <View style={styles.priceRatingContainer}>
                 <View>
                   <ThemedText style={styles.modalPrice}>
-                    {apartment.price}
+                    {(() => {
+                      if (!apartment.price) return "";
+                      const num = parseInt(apartment.price.replace(/\D/g, ""));
+                      return isNaN(num)
+                        ? apartment.price
+                        : `৳${num.toLocaleString("en-US")}/month`;
+                    })()}
                   </ThemedText>
                   <ThemedText style={styles.modalArea}>
-                    {apartment.area}
+                    {(() => {
+                      if (!apartment.area) return "";
+                      const num = parseInt(apartment.area.replace(/\D/g, ""));
+                      return isNaN(num)
+                        ? apartment.area
+                        : `${num.toLocaleString("en-US")} sqft`;
+                    })()}
                   </ThemedText>
                 </View>
                 <View style={styles.ratingContainer}>
@@ -531,34 +694,328 @@ function ApartmentDetailsModal({
               <View style={styles.amenitiesContainer}>
                 <ThemedText style={styles.sectionHeader}>Amenities</ThemedText>
                 <View style={styles.amenitiesGrid}>
-                  {apartment.amenities.map((amenity, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.amenityTag,
-                        { backgroundColor: colors.primary },
-                      ]}
-                    >
-                      <ThemedText style={styles.amenityText}>
-                        ✓ {amenity}
-                      </ThemedText>
-                    </View>
-                  ))}
+                  {(apartment.amenities || []).map(
+                    (amenity: string, index: number) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.amenityTag,
+                          { backgroundColor: colors.primary },
+                        ]}
+                      >
+                        <ThemedText style={styles.amenityText}>
+                          ✓ {amenity}
+                        </ThemedText>
+                      </View>
+                    ),
+                  )}
                 </View>
               </View>
 
               {/* Contact Button */}
-              <TouchableOpacity
-                style={[
-                  styles.contactButton,
-                  { backgroundColor: colors.primary },
-                ]}
-              >
-                <ThemedText style={styles.contactButtonText}>
-                  Contact Landlord
-                </ThemedText>
-              </TouchableOpacity>
+              {!isOwner && (
+                <TouchableOpacity
+                  style={[
+                    styles.contactButton,
+                    {
+                      backgroundColor: colors.primary,
+                      opacity: loadingLandlord ? 0.7 : 1,
+                    },
+                  ]}
+                  onPress={handleContactLandlord}
+                  disabled={loadingLandlord}
+                >
+                  {loadingLandlord ? (
+                    <ActivityIndicator color="#333" />
+                  ) : (
+                    <ThemedText style={styles.contactButtonText}>
+                      Contact Landlord
+                    </ThemedText>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+function AddPostModal({
+  visible,
+  onClose,
+  onSuccess,
+  colors,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  colors: typeof Colors.light;
+}) {
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [location, setLocation] = useState("");
+  const [bedrooms, setBedrooms] = useState("");
+  const [bathrooms, setBathrooms] = useState("");
+  const [area, setArea] = useState("");
+  const [description, setDescription] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const resetForm = () => {
+    setName("");
+    setPrice("");
+    setLocation("");
+    setBedrooms("");
+    setBathrooms("");
+    setArea("");
+    setDescription("");
+    setImages([]);
+  };
+
+  const pickImage = async () => {
+    if (images.length >= 5) {
+      Alert.alert("Limit reached", "You can only add up to 5 images.");
+      return;
+    }
+
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setImages([...images, result.assets[0].uri]);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    const newImages = [...images];
+    newImages.splice(index, 1);
+    setImages(newImages);
+  };
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !price.trim() || !location.trim()) {
+      Alert.alert(
+        "Missing Fields",
+        "Please fill in Name, Price, and Location.",
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+
+      const { error } = await supabase.from("listings").insert([
+        {
+          name: name.trim(),
+          price: price.trim(),
+          location: location.trim(),
+          bedrooms: parseInt(bedrooms) || 0,
+          bathrooms: parseInt(bathrooms) || 0,
+          area: area.trim(),
+          description: description.trim(),
+          images,
+          rating: 0,
+          reviews: 0,
+          user_id: userData?.user?.id,
+        },
+      ]);
+
+      if (error) {
+        Alert.alert("Error", error.message);
+      } else {
+        Alert.alert("Success! 🎉", "Your apartment listing has been posted.");
+        resetForm();
+        onClose();
+        onSuccess();
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err?.message ?? "Something went wrong.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View
+          style={[styles.modalContent, { backgroundColor: colors.background }]}
+        >
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>Add New Post</ThemedText>
+            <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
+              <ThemedText style={styles.modalCloseIcon}>✕</ThemedText>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.formContainer}
+          >
+            <View style={styles.inputGroup}>
+              <ThemedText style={styles.inputLabel}>
+                Images ({images.length}/5)
+              </ThemedText>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.imageUploadScroll}
+              >
+                {images.map((uri, index) => (
+                  <View key={index} style={styles.imagePreviewContainer}>
+                    <Image source={{ uri }} style={styles.imagePreview} />
+                    <TouchableOpacity
+                      style={styles.imageRemoveButton}
+                      onPress={() => removeImage(index)}
+                    >
+                      <ThemedText style={styles.imageRemoveText}>✕</ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {images.length < 5 && (
+                  <TouchableOpacity
+                    style={[
+                      styles.imageUploadButton,
+                      { borderColor: colors.border },
+                    ]}
+                    onPress={pickImage}
+                  >
+                    <ThemedText style={styles.imageUploadIcon}>+</ThemedText>
+                    <ThemedText style={styles.imageUploadText}>
+                      Add Image
+                    </ThemedText>
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+            </View>
+            <View style={styles.inputGroup}>
+              <ThemedText style={styles.inputLabel}>Apartment Name</ThemedText>
+              <TextInput
+                style={[
+                  styles.input,
+                  { color: colors.text, borderColor: colors.border },
+                ]}
+                placeholder="e.g. Rancor Tower (Flat 8B)"
+                placeholderTextColor={colors.text + "80"}
+                value={name}
+                onChangeText={setName}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <ThemedText style={styles.inputLabel}>Price per Month</ThemedText>
+              <TextInput
+                style={[
+                  styles.input,
+                  { color: colors.text, borderColor: colors.border },
+                ]}
+                placeholder="e.g. ৳25,000/month"
+                placeholderTextColor={colors.text + "80"}
+                value={price}
+                onChangeText={setPrice}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <ThemedText style={styles.inputLabel}>Location</ThemedText>
+              <TextInput
+                style={[
+                  styles.input,
+                  { color: colors.text, borderColor: colors.border },
+                ]}
+                placeholder="e.g. Downtown, City Center"
+                placeholderTextColor={colors.text + "80"}
+                value={location}
+                onChangeText={setLocation}
+              />
+            </View>
+            <View style={styles.rowInputGroup}>
+              <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+                <ThemedText style={styles.inputLabel}>Bedrooms</ThemedText>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { color: colors.text, borderColor: colors.border },
+                  ]}
+                  placeholder="e.g. 2"
+                  placeholderTextColor={colors.text + "80"}
+                  keyboardType="numeric"
+                  value={bedrooms}
+                  onChangeText={setBedrooms}
+                />
+              </View>
+              <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                <ThemedText style={styles.inputLabel}>Bathrooms</ThemedText>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { color: colors.text, borderColor: colors.border },
+                  ]}
+                  placeholder="e.g. 1"
+                  placeholderTextColor={colors.text + "80"}
+                  keyboardType="numeric"
+                  value={bathrooms}
+                  onChangeText={setBathrooms}
+                />
+              </View>
+            </View>
+            <View style={styles.inputGroup}>
+              <ThemedText style={styles.inputLabel}>Area</ThemedText>
+              <TextInput
+                style={[
+                  styles.input,
+                  { color: colors.text, borderColor: colors.border },
+                ]}
+                placeholder="e.g. 1,200 sq ft"
+                placeholderTextColor={colors.text + "80"}
+                value={area}
+                onChangeText={setArea}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <ThemedText style={styles.inputLabel}>Description</ThemedText>
+              <TextInput
+                style={[
+                  styles.input,
+                  styles.textArea,
+                  { color: colors.text, borderColor: colors.border },
+                ]}
+                placeholder="Describe your apartment..."
+                placeholderTextColor={colors.text + "80"}
+                multiline
+                numberOfLines={4}
+                value={description}
+                onChangeText={setDescription}
+              />
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.submitButton,
+                {
+                  backgroundColor: colors.primary,
+                  opacity: isSubmitting ? 0.7 : 1,
+                },
+              ]}
+              onPress={handleSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#333" />
+              ) : (
+                <ThemedText style={styles.submitButtonText}>
+                  🐝 Post Listing
+                </ThemedText>
+              )}
+            </TouchableOpacity>
           </ScrollView>
         </View>
       </SafeAreaView>
@@ -873,5 +1330,118 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#333333",
+  },
+  // Floating Action Button
+  fab: {
+    position: "absolute",
+    bottom: 24,
+    right: 24,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  fabText: {
+    fontSize: 32,
+    fontWeight: "400",
+    color: "#fff",
+  },
+  // Add Post Form styles
+  formContainer: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  rowInputGroup: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
+  },
+  textArea: {
+    height: 100,
+    textAlignVertical: "top",
+  },
+  submitButton: {
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  submitButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333333",
+  },
+  // Add Image Styles
+  imageUploadScroll: {
+    paddingVertical: 8,
+  },
+  imageUploadButton: {
+    width: 100,
+    height: 100,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  imageUploadIcon: {
+    fontSize: 32,
+    fontWeight: "300",
+    color: "#888",
+    marginBottom: 4,
+  },
+  imageUploadText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#888",
+  },
+  imagePreviewContainer: {
+    width: 100,
+    height: 100,
+    marginRight: 10,
+    borderRadius: 8,
+    overflow: "hidden",
+    position: "relative",
+  },
+  imagePreview: {
+    width: "100%",
+    height: "100%",
+  },
+  imageRemoveButton: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  imageRemoveText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
   },
 });

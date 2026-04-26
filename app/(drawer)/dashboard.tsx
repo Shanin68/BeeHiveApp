@@ -2,8 +2,13 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useState } from "react";
+import { supabase } from "@/utils/supabase";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -12,101 +17,79 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// Dummy apartment data with extended details
-const apartmentDetails = [
-  {
-    id: 1,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$2,500/month",
-    image: "#FF9F43",
-    bedrooms: 2,
-    bathrooms: 1,
-    location: "Downtown, City Center",
-    description:
-      "Modern 2-bedroom apartment with great views and modern amenities",
-    area: "1,200 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Gym", "Swimming Pool", "24/7 Security"],
-    rating: 4.5,
-    reviews: 128,
-  },
-  {
-    id: 2,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$2,500/month",
-    image: "#2ED573",
-    bedrooms: 2,
-    bathrooms: 2,
-    location: "Business District",
-    description:
-      "Beautiful apartment in a prime location with excellent amenities",
-    area: "1,350 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Gym", "24/7 Security", "Balcony"],
-    rating: 4.7,
-    reviews: 95,
-  },
-  {
-    id: 3,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$2,500/month",
-    image: "#9B59B6",
-    bedrooms: 1,
-    bathrooms: 1,
-    location: "Near University",
-    description:
-      "Cozy 1-bedroom apartment perfect for students and professionals",
-    area: "800 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Security", "24/7 Support"],
-    rating: 4.3,
-    reviews: 67,
-  },
-  {
-    id: 4,
-    name: "Rancor Tower (Flat 8B)",
-    price: "$3,200/month",
-    image: "#2ED573",
-    bedrooms: 3,
-    bathrooms: 2,
-    location: "Premium Area",
-    description: "Luxury apartment with modern amenities",
-    area: "1,800 sq ft",
-    amenities: [
-      "Wi-Fi",
-      "Parking",
-      "Gym",
-      "Swimming Pool",
-      "24/7 Security",
-      "Concierge",
-    ],
-    rating: 4.8,
-    reviews: 156,
-  },
-  {
-    id: 5,
-    name: "Downtown Towers (Flat 5A)",
-    price: "$2,800/month",
-    image: "#DDA15E",
-    bedrooms: 2,
-    bathrooms: 1,
-    location: "City Center",
-    description: "Spacious flat in city center",
-    area: "1,400 sq ft",
-    amenities: ["Wi-Fi", "Parking", "Gym", "24/7 Security", "Rooftop"],
-    rating: 4.6,
-    reviews: 142,
-  },
-];
-
-// For backward compatibility with existing code
-const apartmentsNearYou = apartmentDetails.slice(0, 3);
-const featuredApartments = apartmentDetails.slice(3);
+// Shape of a listing row from Supabase
+type Listing = {
+  id: number;
+  name: string;
+  price: string;
+  location: string;
+  bedrooms: number;
+  bathrooms: number;
+  area: string;
+  description: string;
+  images: string[] | null;
+  amenities?: string[] | null;
+  rating: number;
+  reviews: number;
+  user_id?: string;
+};
 
 export default function DashboardScreen() {
   const colorScheme = useColorScheme();
   const colors = colorScheme === "dark" ? Colors.dark : Colors.light;
-  const [selectedApartment, setSelectedApartment] = useState<
-    (typeof apartmentDetails)[0] | null
-  >(null);
+
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [selectedApartment, setSelectedApartment] = useState<Listing | null>(
+    null,
+  );
   const [modalVisible, setModalVisible] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchListings();
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id ?? null);
+    });
+  }, []);
+
+  const fetchListings = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setListings(data || []);
+    } catch (err: any) {
+      console.error("Dashboard list error: ", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Display all listings in both sections
+  const apartmentsNearYou = listings;
+  const featuredApartments = listings;
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ThemedView
+          style={[
+            styles.innerContainer,
+            { justifyContent: "center", alignItems: "center" },
+          ]}
+        >
+          <ActivityIndicator size="large" color={colors.primary} />
+          <ThemedText style={{ marginTop: 12 }}>Loading listings...</ThemedText>
+        </ThemedView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -133,21 +116,24 @@ export default function DashboardScreen() {
                   key={apt.id}
                   style={[styles.apartmentCard, { borderColor: colors.border }]}
                   onPress={() => {
-                    const fullApt = apartmentDetails.find(
-                      (a) => a.id === apt.id,
-                    );
-                    if (fullApt) {
-                      setSelectedApartment(fullApt);
-                      setModalVisible(true);
-                    }
+                    setSelectedApartment(apt);
+                    setModalVisible(true);
                   }}
                 >
-                  <View
-                    style={[
-                      styles.apartmentImage,
-                      { backgroundColor: apt.image },
-                    ]}
-                  />
+                  {apt.images && apt.images.length > 0 ? (
+                    <Image
+                      source={{ uri: apt.images[0] }}
+                      style={styles.apartmentImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.apartmentImage,
+                        { backgroundColor: "#FDB913" },
+                      ]}
+                    />
+                  )}
                   <View style={styles.apartmentInfo}>
                     <ThemedText style={styles.apartmentName}>
                       {apt.name}
@@ -155,7 +141,13 @@ export default function DashboardScreen() {
                     <ThemedText
                       style={[styles.apartmentPrice, { color: colors.primary }]}
                     >
-                      {apt.price}
+                      {(() => {
+                        if (!apt.price) return "";
+                        const num = parseInt(apt.price.replace(/\D/g, ""));
+                        return isNaN(num)
+                          ? apt.price
+                          : `৳${num.toLocaleString("en-US")}/month`;
+                      })()}
                     </ThemedText>
                   </View>
                 </TouchableOpacity>
@@ -172,16 +164,24 @@ export default function DashboardScreen() {
                 key={apt.id}
                 style={[styles.featuredCard, { borderColor: colors.border }]}
                 onPress={() => {
-                  const fullApt = apartmentDetails.find((a) => a.id === apt.id);
-                  if (fullApt) {
-                    setSelectedApartment(fullApt);
-                    setModalVisible(true);
-                  }
+                  setSelectedApartment(apt);
+                  setModalVisible(true);
                 }}
               >
-                <View
-                  style={[styles.featuredImage, { backgroundColor: apt.image }]}
-                />
+                {apt.images && apt.images.length > 0 ? (
+                  <Image
+                    source={{ uri: apt.images[0] }}
+                    style={styles.featuredImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.featuredImage,
+                      { backgroundColor: "#FDB913" },
+                    ]}
+                  />
+                )}
                 <View style={styles.featuredInfo}>
                   <ThemedText style={styles.featuredName}>
                     {apt.name}
@@ -189,7 +189,13 @@ export default function DashboardScreen() {
                   <ThemedText
                     style={[styles.featuredPrice, { color: colors.primary }]}
                   >
-                    {apt.price}
+                    {(() => {
+                      if (!apt.price) return "";
+                      const num = parseInt(apt.price.replace(/\D/g, ""));
+                      return isNaN(num)
+                        ? apt.price
+                        : `৳${num.toLocaleString("en-US")}/month`;
+                    })()}
                   </ThemedText>
                   <ThemedText style={styles.featuredDetails}>
                     {apt.bedrooms} bed • {apt.bathrooms} bath
@@ -213,6 +219,7 @@ export default function DashboardScreen() {
               setSelectedApartment(null);
             }}
             colors={colors}
+            currentUserId={currentUserId}
           />
         )}
       </ThemedView>
@@ -225,12 +232,108 @@ function ApartmentDetailsModal({
   visible,
   onClose,
   colors,
+  currentUserId,
 }: {
-  apartment: (typeof apartmentDetails)[0];
+  apartment: Listing;
   visible: boolean;
   onClose: () => void;
   colors: typeof Colors.light;
+  currentUserId: string | null;
 }) {
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [loadingLandlord, setLoadingLandlord] = useState(false);
+  const [isFavourited, setIsFavourited] = useState(false);
+  const [favId, setFavId] = useState<number | null>(null);
+  const [favLoading, setFavLoading] = useState(false);
+  const { width } = Dimensions.get("window");
+
+  useEffect(() => {
+    if (visible) {
+      setActiveImageIndex(0);
+      checkFavourite();
+    }
+  }, [visible, apartment.id]);
+
+  const checkFavourite = async () => {
+    if (!currentUserId) return;
+    const { data } = await supabase
+      .from("favourites")
+      .select("id")
+      .eq("user_id", currentUserId)
+      .eq("listing_id", apartment.id)
+      .maybeSingle();
+    setIsFavourited(!!data);
+    setFavId(data?.id ?? null);
+  };
+
+  const toggleFavourite = async () => {
+    if (!currentUserId) {
+      Alert.alert("Sign in required", "Please log in to save favourites.");
+      return;
+    }
+    setFavLoading(true);
+    try {
+      if (isFavourited && favId) {
+        await supabase.from("favourites").delete().eq("id", favId);
+        setIsFavourited(false);
+        setFavId(null);
+      } else {
+        const { data } = await supabase
+          .from("favourites")
+          .insert({ user_id: currentUserId, listing_id: apartment.id })
+          .select("id")
+          .single();
+        setIsFavourited(true);
+        setFavId(data?.id ?? null);
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    } finally {
+      setFavLoading(false);
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const slideSize = event.nativeEvent.layoutMeasurement.width;
+    const index = Math.round(event.nativeEvent.contentOffset.x / slideSize);
+    setActiveImageIndex(index);
+  };
+
+  const handleContactLandlord = async () => {
+    if (!apartment.user_id) {
+      Alert.alert(
+        "Notice",
+        "Landlord information is not available for this listing.",
+      );
+      return;
+    }
+
+    setLoadingLandlord(true);
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("full_name, phone_number")
+        .eq("id", apartment.user_id)
+        .single();
+
+      if (error) throw error;
+
+      const name = data.full_name || "Landlord";
+      const phone = data.phone_number || "Not provided";
+
+      Alert.alert(`👤 ${name}`, `📞 Phone: ${phone}`, [
+        { text: "Close", style: "cancel" },
+      ]);
+    } catch (err: any) {
+      Alert.alert(
+        "Error",
+        err?.message || "Failed to load landlord information.",
+      );
+    } finally {
+      setLoadingLandlord(false);
+    }
+  };
+
   return (
     <Modal
       visible={visible}
@@ -245,33 +348,69 @@ function ApartmentDetailsModal({
           {/* Modal Header */}
           <View style={styles.modalHeader}>
             <ThemedText style={styles.modalTitle}>{apartment.name}</ThemedText>
-            <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
-              <ThemedText style={styles.modalCloseIcon}>✕</ThemedText>
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity
+                onPress={toggleFavourite}
+                disabled={favLoading}
+                style={{ padding: 8 }}
+              >
+                <ThemedText style={{ fontSize: 22 }}>
+                  {isFavourited ? "❤️" : "🤍"}
+                </ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
+                <ThemedText style={styles.modalCloseIcon}>✕</ThemedText>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Scrollable Content */}
           <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Main Image */}
-            <View
-              style={[styles.modalImage, { backgroundColor: apartment.image }]}
-            />
+            {/* Main Image Slider */}
+            {apartment.images && apartment.images.length > 0 ? (
+              <View>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                >
+                  {apartment.images.map((img, index) => (
+                    <Image
+                      key={index}
+                      source={{ uri: img }}
+                      style={[styles.modalImage, { width }]}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            ) : (
+              <View
+                style={[styles.modalImage, { backgroundColor: "#FDB913" }]}
+              />
+            )}
 
             {/* Image Gallery Indicators */}
-            <View style={styles.imageIndicators}>
-              {[0, 1, 2, 3].map((i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.indicator,
-                    i === 0 && { backgroundColor: colors.primary },
-                    i !== 0 && {
-                      backgroundColor: colors.border,
-                    },
-                  ]}
-                />
-              ))}
-            </View>
+            {apartment.images && apartment.images.length > 1 && (
+              <View style={styles.imageIndicators}>
+                {apartment.images.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.indicator,
+                      i === activeImageIndex && {
+                        backgroundColor: colors.primary,
+                      },
+                      i !== activeImageIndex && {
+                        backgroundColor: colors.border,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
 
             {/* Details Section */}
             <View style={styles.modalDetailsSection}>
@@ -279,18 +418,30 @@ function ApartmentDetailsModal({
               <View style={styles.priceRatingContainer}>
                 <View>
                   <ThemedText style={styles.modalPrice}>
-                    {apartment.price}
+                    {(() => {
+                      if (!apartment.price) return "";
+                      const num = parseInt(apartment.price.replace(/\D/g, ""));
+                      return isNaN(num)
+                        ? apartment.price
+                        : `৳${num.toLocaleString("en-US")}/month`;
+                    })()}
                   </ThemedText>
                   <ThemedText style={styles.modalArea}>
-                    {apartment.area}
+                    {(() => {
+                      if (!apartment.area) return "";
+                      const num = parseInt(apartment.area.replace(/\D/g, ""));
+                      return isNaN(num)
+                        ? apartment.area
+                        : `${num.toLocaleString("en-US")} sqft`;
+                    })()}
                   </ThemedText>
                 </View>
                 <View style={styles.ratingContainer}>
                   <ThemedText style={styles.rating}>
-                    ⭐ {apartment.rating}
+                    ⭐ {apartment.rating ?? 0}
                   </ThemedText>
                   <ThemedText style={styles.reviews}>
-                    {apartment.reviews} reviews
+                    {apartment.reviews ?? 0} reviews
                   </ThemedText>
                 </View>
               </View>
@@ -330,35 +481,46 @@ function ApartmentDetailsModal({
               </View>
 
               {/* Amenities */}
-              <View style={styles.amenitiesContainer}>
-                <ThemedText style={styles.sectionHeader}>Amenities</ThemedText>
-                <View style={styles.amenitiesGrid}>
-                  {apartment.amenities.map((amenity, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.amenityTag,
-                        { backgroundColor: colors.primary },
-                      ]}
-                    >
-                      <ThemedText style={styles.amenityText}>
-                        ✓ {amenity}
-                      </ThemedText>
-                    </View>
-                  ))}
+              {apartment.amenities && apartment.amenities.length > 0 && (
+                <View style={styles.amenitiesContainer}>
+                  <ThemedText style={styles.sectionHeader}>
+                    Amenities
+                  </ThemedText>
+                  <View style={styles.amenitiesGrid}>
+                    {apartment.amenities.map((amenity, index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.amenityTag,
+                          { backgroundColor: colors.primary },
+                        ]}
+                      >
+                        <ThemedText style={styles.amenityText}>
+                          ✓ {amenity}
+                        </ThemedText>
+                      </View>
+                    ))}
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Contact Button */}
               <TouchableOpacity
                 style={[
                   styles.contactButton,
                   { backgroundColor: colors.primary },
+                  loadingLandlord && { opacity: 0.7 },
                 ]}
+                onPress={handleContactLandlord}
+                disabled={loadingLandlord}
               >
-                <ThemedText style={styles.contactButtonText}>
-                  Contact Landlord
-                </ThemedText>
+                {loadingLandlord ? (
+                  <ActivityIndicator color="#333" />
+                ) : (
+                  <ThemedText style={styles.contactButtonText}>
+                    Contact Landlord
+                  </ThemedText>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>

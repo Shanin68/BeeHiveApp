@@ -2,6 +2,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { supabase } from "@/utils/supabase";
 import { Link, useRouter } from "expo-router";
 import { useState } from "react";
 import {
@@ -18,19 +19,30 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const colorScheme = useColorScheme();
   const colors = colorScheme === "dark" ? Colors.dark : Colors.light;
   const router = useRouter();
 
   const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError("Please enter your email and password.");
+      return;
+    }
+    setError("");
     setLoading(true);
     try {
-      // TODO: Implement login logic with backend
-      console.log("Login with:", { email, password });
-      // Navigate to drawer home after login
-      router.replace("/(drawer)/dashboard");
-    } catch (error) {
-      console.error("Login error:", error);
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (authError) {
+        setError(authError.message);
+      } else {
+        router.replace("/(drawer)/dashboard");
+      }
+    } catch (err: any) {
+      setError(err?.message ?? "Something went wrong.");
     } finally {
       setLoading(false);
     }
@@ -58,6 +70,15 @@ export default function LoginScreen() {
               Find Your Perfect Home
             </ThemedText>
           </View>
+
+          {/* Error Message */}
+          {error ? (
+            <View style={[styles.errorContainer, { backgroundColor: "rgba(255, 0, 0, 0.1)" }]}>
+              <ThemedText style={{ color: "#d32f2f", fontSize: 14 }}>
+                {error}
+              </ThemedText>
+            </View>
+          ) : null}
 
           {/* Login Form */}
           <View style={styles.formContainer}>
@@ -177,6 +198,11 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 24,
     justifyContent: "center",
+  },
+  errorContainer: {
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
   },
   headerContainer: {
     alignItems: "center",

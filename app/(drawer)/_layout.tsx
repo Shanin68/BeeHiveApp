@@ -69,12 +69,12 @@ export default function DrawerLayout() {
           }}
         />
         <Drawer.Screen
-          name="settings"
+          name="favourites"
           options={{
-            drawerLabel: "Settings",
-            title: "Settings",
+            drawerLabel: "Favourites",
+            title: "Favourites",
             drawerIcon: ({ color, size }) => (
-              <DrawerIcon icon="⚙️" color={color} size={size} />
+              <DrawerIcon icon="❤️" color={color} size={size} />
             ),
           }}
         />
